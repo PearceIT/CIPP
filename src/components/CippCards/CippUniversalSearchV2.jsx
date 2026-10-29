@@ -26,12 +26,14 @@ import { BulkActionsMenu } from "../bulk-actions-menu";
 import { CippOffCanvas } from "../CippComponents/CippOffCanvas";
 import { CippBitlockerKeySearch } from "../CippComponents/CippBitlockerKeySearch";
 import { nativeMenuItems } from "../../layouts/config";
+import { getHiddenPages } from "../../utils/filter-menu-items";
 import { usePermissions } from "../../hooks/use-permissions";
 import { useIsMobileLayout } from "../../hooks/use-breakpoint";
 import { useUserBookmarks } from "../../hooks/use-user-bookmarks";
 import { useSettings } from "../../hooks/use-settings";
 import { useTenantPreferences } from "../../hooks/use-tenant-preferences";
 import { searchLocalLicenseCatalog } from "../../utils/get-cipp-license-catalog";
+import extensions from "../../data/Extensions.json";
 
 // Scopes that match in memory as the user types; the rest hit the API on Enter / Search.
 const LOCAL_SCOPES = ["Pages", "Licenses", "Tenants"];
@@ -193,8 +195,24 @@ export const CippUniversalSearchV2 = React.forwardRef(
     const activeSearch =
       searchType === "BitLocker" ? bitlockerSearch : searchType === "Pages" ? null : universalSearch;
 
+    // Same flags the side nav and tab layouts filter by, so a page switched off by a feature
+    // flag doesn't resurface as a search result (issue #760).
+    const featureFlags = ApiGetCall({
+      url: "/api/ListFeatureFlags",
+      queryKey: "featureFlags",
+      staleTime: 600000,
+    });
+    const hiddenPages = useMemo(
+      () =>
+        featureFlags.isSuccess
+          ? getHiddenPages(featureFlags.data).map((page) => page.replace(/\/$/, ""))
+          : [],
+      [featureFlags.isSuccess, featureFlags.data],
+    );
+
     const flattenedMenuItems = useMemo(() => {
-      const allLeafItems = getLeafItems(nativeMenuItems);
+      const isHidden = (path) => !!path && hiddenPages.includes(path.replace(/\/$/, ""));
+      const allLeafItems = getLeafItems(nativeMenuItems).filter((item) => !isHidden(item.path));
 
       const buildBreadcrumbPath = (items, targetPath) => {
         const searchRecursive = (nestedItems, currentPath = []) => {
@@ -261,7 +279,9 @@ export const CippUniversalSearchV2 = React.forwardRef(
             });
           }
 
-          if (!pageItem) return null;
+          // A tab of a flag-hidden page resolves to no pageItem above; the tab's own path can
+          // also be listed on a flag directly.
+          if (!pageItem || isHidden(tab.path)) return null;
 
           const hasAccessToPage =
             filterItemsByPermissionsAndRoles([pageItem], userPermissions, userRoles).length > 0;
@@ -280,8 +300,26 @@ export const CippUniversalSearchV2 = React.forwardRef(
         })
         .filter(Boolean);
 
-      return [...filteredMainMenu, ...filteredTabOptions];
-    }, [userPermissions, userRoles, tabOptions]);
+      // Each integration is a query-string page under /cipp/integrations, so it has no menu entry.
+      const integrationsPage = filteredMainMenu.find((item) => item.path === "/cipp/integrations");
+      const integrationItems = integrationsPage
+        ? [
+            { title: "Sync Jobs", path: "/cipp/integrations/sync" },
+            ...extensions
+              .filter((extension) => !extension.comingSoon)
+              .map((extension) => ({
+                title: extension.name,
+                path: `/cipp/integrations/configure?id=${extension.id}`,
+              })),
+          ].map((item) => ({
+            ...item,
+            scope: "global",
+            breadcrumbs: [...integrationsPage.breadcrumbs, integrationsPage.title],
+          }))
+        : [];
+
+      return [...filteredMainMenu, ...integrationItems, ...filteredTabOptions];
+    }, [userPermissions, userRoles, tabOptions, hiddenPages]);
 
     const normalizedSearch = searchValue.trim().toLowerCase();
     const pageResults = flattenedMenuItems.filter((leaf) => {

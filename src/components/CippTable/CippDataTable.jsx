@@ -188,7 +188,7 @@ const buildSubTableColumn = (sub) => ({
   ),
 })
 
-const SORTING_FNS = {
+export const SORTING_FNS = {
   dateTimeNullsLast: (a, b, id) => {
     const aRaw = getRowValueByColumnId(a, id)
     const bRaw = getRowValueByColumnId(b, id)
@@ -210,6 +210,15 @@ const SORTING_FNS = {
     const bVal = Number.isNaN(bNum) ? null : bNum
 
     return compareNullable(aVal, bVal)
+  },
+  // Object-array columns render as an "N items" button; sort on the item count instead
+  // of the accessor's text form (a JSON string), which orders them at random.
+  arrayLength: (a, b, id) => {
+    const len = (row) => {
+      const value = getRowValueByColumnId(row, id)
+      return Array.isArray(value) ? value.length : null
+    }
+    return compareNullable(len(a), len(b))
   },
   boolean: (a, b, id) => {
     const aRaw = getRowValueByColumnId(a, id)
@@ -660,6 +669,8 @@ export const CippDataTable = (props) => {
     simpleColumns = [],
     dataFilter,
     dataMap,
+    // Whole-array transform applied after dataFilter/dataMap (e.g. grouping All Tenants rows).
+    dataTransform,
     actions,
     title = 'Report',
     simple = false,
@@ -794,7 +805,12 @@ export const CippDataTable = (props) => {
 
   const getRequestData = ApiGetCallWithPagination({
     url: api.url,
-    data: { ...api.data },
+    data: {
+      // AllTenants Graph cache reads are served in bounded pages; a page can still opt out with manualPagination: false.
+      ...(api.url === '/api/ListGraphRequest' &&
+        api.data?.tenantFilter === 'AllTenants' && { manualPagination: true }),
+      ...api.data,
+    },
     queryKey: queryKey ? queryKey : title,
     waiting: waitingBool,
     ...graphFilterData,
@@ -874,11 +890,11 @@ export const CippDataTable = (props) => {
       const filtered = dataFilter
         ? combinedResults.filter(dataFilter)
         : combinedResults
-      setUsedData(
+      const mapped =
         typeof dataMap === 'function'
           ? filtered.map((row) => dataMap(row, { parentRow }))
           : filtered
-      )
+      setUsedData(typeof dataTransform === 'function' ? dataTransform(mapped) : mapped)
     }
   }, [
     api?.url,
@@ -889,6 +905,7 @@ export const CippDataTable = (props) => {
     queryKey,
     dataFilter,
     dataMap,
+    dataTransform,
     parentRow,
   ])
 
@@ -1889,6 +1906,16 @@ export const CippDataTable = (props) => {
           },
         },
       }),
+    // inside a dialog only the rows scroll: the container is sized to the dialog paper
+    // (viewport minus dialog margins, title, toolbar, pagination and actions) so the
+    // DialogContent never grows its own scrollbar on top of the table's
+    ...(isInDialog && {
+      enableStickyHeader: true,
+      muiTableContainerProps: {
+        ...modeInfo.muiTableContainerProps,
+        sx: { ...modeInfo.muiTableContainerProps?.sx, maxHeight: 'calc(100vh - 420px)' },
+      },
+    }),
     renderRowActionMenuItems,
     renderTopToolbar,
     sortingFns: SORTING_FNS,

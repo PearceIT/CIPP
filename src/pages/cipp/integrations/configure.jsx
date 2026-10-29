@@ -29,7 +29,9 @@ import { CippCardTabPanel } from "../../../components/CippComponents/CippCardTab
 import CippApiClientManagement from "../../../components/CippIntegrations/CippApiClientManagement";
 import { CippApiEgressCard } from "../../../components/CippIntegrations/CippApiEgressCard";
 import CippApiDocumentation from "../../../components/CippIntegrations/CippApiDocumentation";
-import CippMcpManagement from "../../../components/CippIntegrations/CippMcpManagement";
+import CippMcpManagement, {
+  McpFeatureDisabledAlert,
+} from "../../../components/CippIntegrations/CippMcpManagement";
 
 function tabProps(index) {
   return {
@@ -278,6 +280,7 @@ const Page = () => {
             <CippApiResults apiObject={actionSyncResults} />
             <CippApiResults apiObject={actionHaloTestTicketResults} />
             <CippApiResults apiObject={clearHIBPKey} />
+            {router.query.id === "cippapi" && <McpFeatureDisabledAlert sx={{ mb: 2 }} />}
             {router.query.id === "cippapi" && mcpAuth.data?.Results?.ResourceConflict && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 <strong>MCP setup needs attention.</strong> The app{" "}
@@ -294,6 +297,9 @@ const Page = () => {
             <Box sx={{ borderBottom: 1, borderColor: "divider", px: "24px", m: "auto" }}>
               <Tabs value={value} onChange={handleTabChange} aria-label="Integration settings">
                 <Tab label="Settings" {...tabProps(0)} />
+                {extension?.id === "cippapi" && (
+                  <Tab label="API Usage" value={5} {...tabProps(5)} />
+                )}
                 {extension?.mappingRequired && (
                   <Tab
                     label="Tenant Mapping"
@@ -329,15 +335,17 @@ const Page = () => {
             </Box>
             <CippCardTabPanel value={value} index={0}>
               {extension?.id === "cippapi" ? (
-                <Stack spacing={2}>
-                  <CippApiEgressCard />
-                  <CippApiClientManagement />
-                </Stack>
+                <CippApiClientManagement />
               ) : (
                 <CippIntegrationSettings />
               )}
             </CippCardTabPanel>
 
+            {extension?.id === "cippapi" && (
+              <CippCardTabPanel value={value} index={5}>
+                <CippApiEgressCard />
+              </CippCardTabPanel>
+            )}
             {extension?.mappingRequired && (
               <CippCardTabPanel value={value} index={1}>
                 <CippIntegrationTenantMapping />

@@ -30,6 +30,7 @@ import { ApiGetCall, ApiPostCall } from '../../../../api/ApiCall'
 import { CippFormCondition } from '../../../../components/CippComponents/CippFormCondition'
 import { CippHead } from '../../../../components/CippComponents/CippHead'
 import { useSettings } from '../../../../hooks/use-settings'
+import { pushEnrolmentHint, usePushDevices } from '../../../../hooks/use-push-subscription'
 
 const AlertWizard = () => {
   const apiRequest = ApiPostCall({
@@ -151,10 +152,12 @@ const AlertWizard = () => {
     { value: '365d', label: 'Every 365 days' },
   ])
 
+  const pushDevices = usePushDevices()
   const postExecutionOptions = [
     { label: 'Webhook', value: 'Webhook' },
     { label: 'Email', value: 'Email' },
     { label: 'PSA', value: 'PSA' },
+    ...(pushDevices.devices.length > 0 ? [{ label: 'Push (notify me)', value: 'Push' }] : []),
   ]
   const logbookOptions = [
     { value: 'Audit.AzureActiveDirectory', label: 'Azure AD' },
@@ -339,6 +342,7 @@ const AlertWizard = () => {
           PsaTicketPriority: toPsaPriorityValue(
             alert.RawAlert.PsaTicketPriority
           ),
+          AlertReNotify: alert.RawAlert.AlertReNotify === true,
         }
         if (usedCommand?.requiresInput && alert.RawAlert.Parameters) {
           try {
@@ -557,6 +561,21 @@ const AlertWizard = () => {
     }
   }, [commandValue, editAlert])
 
+  // Seed catalog defaults for the chosen alert's inputs. Only for a new alert: an existing one
+  // is reset from its stored parameters, which must win over the catalog.
+  useEffect(() => {
+    const command = commandValue?.value
+    if (!command?.requiresInput || editAlert) return
+    const inputs = command.multipleInput ? command.inputs || [] : [command]
+    inputs.forEach((input) => {
+      if (input.inputName && input.defaultValue !== undefined) {
+        formControl.setValue(input.inputName, input.defaultValue, {
+          shouldDirty: true,
+        })
+      }
+    })
+  }, [commandValue, editAlert])
+
   useEffect(() => {
     if (!selectedPreset) return
     setIsLoadingPreset(true)
@@ -694,6 +713,7 @@ const AlertWizard = () => {
         values.PsaTicketStrategy?.value ?? values.PsaTicketStrategy ?? '',
       PsaTicketPriority:
         values.PsaTicketPriority?.value ?? values.PsaTicketPriority ?? '',
+      AlertReNotify: values.AlertReNotify === true,
     }
     apiRequest.mutate(
       { url: '/api/AddScriptedAlert', data: postObject },
@@ -1219,15 +1239,12 @@ const AlertWizard = () => {
                             <Grid size={{ xs: 12, md: 6 }}>
                               <CippFormComponent
                                 type="autoComplete"
-                                validators={{ required: true }}
+                                validators={{ required: 'This field is required' }}
                                 multiple={false}
                                 creatable={false}
                                 name="command"
                                 formControl={formControl}
                                 label="What alerting script should run"
-                                validation={{
-                                  required: 'This field is required',
-                                }}
                                 options={alertList.map((cmd) => ({
                                   value: cmd,
                                   label: cmd.label,
@@ -1385,6 +1402,7 @@ const AlertWizard = () => {
                                 multiple={true}
                                 creatable={false}
                                 options={postExecutionOptions}
+                                helperText={pushEnrolmentHint(pushDevices)}
                               />
                             </Grid>
 
@@ -1432,6 +1450,15 @@ const AlertWizard = () => {
                               </CippFormCondition>
                             )}
 
+                            <Grid size={12}>
+                              <CippFormComponent
+                                type="switch"
+                                name="AlertReNotify"
+                                label="Notify on every run while the alert is still active"
+                                formControl={formControl}
+                                helperText="Off: you are notified once when an item first appears or comes back. On: still-active items are sent again on every run. Snoozed items stay silent."
+                              />
+                            </Grid>
                             <Grid size={12}>
                               <CippFormComponent
                                 type="textField"
